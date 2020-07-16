@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="ja">
+
+<head>
+	<meta charset="UTF-8">
+	<title>津山市人口集計（ヒートマップ）</title>
+	<style>
+		.flex{
+				display: -webkit-flex;
+				display: -moz-flex;
+				display: -ms-flex;
+				display: -o-flex;
+				display: flex;
+			}
+		html { height: 100% }
+		body { height: 100% }
+		div.title { font-size: medium; font-weight: bold; }
+		div.item  { font-size: medium; }
+		p.footer  { font-size: small; border-top: 1px dotted blue; }
+		#map-canvas { height: 85%; width: 100%}
+	</style>
+</head>
+
+<body>
+
+	<div class="title">津山市人口集計（ヒートマップ）</div>
+	<div class="flex">
+		<div class="item">
+			データ：<a href="https://www.city.tsuyama.lg.jp/life/index2.php?id=5530" target="_blank">津山市オープンデータ</a>
+			(<a href="https://tsuyama-group.dataeye.jp/datasets/162" target="_blank">津山市_当月分人口集計</a>)
+		</div>
+		<div class="item" id="csvUpdate"></div>
+	</div>
+	<div class="item">
+		<button onclick="toggleHeatmap()"  >ヒートマップ表示／非表示</button>　
+		<button onclick="setHeatmap(0)"    >合　計</button>
+		<button onclick="setHeatmap(1)"    >日本人</button>
+		<button onclick="setHeatmap(2)"    >外国人</button>
+		（日本人と外国人の色強度は異なります）
+	</div>
+
+	<!-- 地図の表示領域 -->
+	<div id="map-canvas"></div>
+
+	<script>
+
+		// データ定義
+		var map, heatmap, heatmapData;
+		var dataArray   = new Array();
+
+
+		// CSV読込
+		function getCSV(){
+			var req = new XMLHttpRequest(); 				// HTTPでファイル読み込むためにXMLHttpRrequestオブジェクトを生成
+			req.open("get", "./data/tsuyama_city_heatmap_population_data.csv", true); 	// CSVファイル指定
+			req.send(null); 								// HTTPリクエスト発行
+			req.onload = function(){						// レスポンス後の処理
+				cnvCSVtoArray(req.responseText);				// データーテーブルセット
+				setUpdate();									// 更新日セット
+				setHeatmap(0);									// ヒートマップデータセット（0:全員）
+				heatmap.setMap(map);							// ヒートマップレイヤをMapオブジェクトに紐付けてMap上に表示
+			}
+		}
+
+		// データテーブルセット（CSV→Array）
+		function cnvCSVtoArray(str){
+			var tmp  = str.split("\n"); // CSVデータを改行で分解（配列生成）
+			var tmp2 = [];
+			var j    = 0;
+			for(var i=0;i<tmp.length;++i){
+				if( i > 0 ) {
+					tmp2    = tmp[i].split(','); // 行データをカンマで分解（配列生成）
+					dataArray[j] = { areacd:tmp2[0], sumym:tmp2[1], position:{lat:Number(tmp2[2]), lng:Number(tmp2[3])}, content:tmp2[4], numjm:Number(tmp2[5]), numjf:Number(tmp2[6]), numfm:Number(tmp2[7]), numff:Number(tmp2[8]) }; // lat:緯度, ing:経度, content:コンテンツ, update:更新日
+					j++;
+				}
+			}
+		}
+
+		// 更新日セット
+		function setUpdate() {
+			// CSV更新日
+			var target = document.getElementById( "csvUpdate" );
+			target.innerHTML = dataArray[0].sumym.toString().substr(0,4) + "年" + dataArray[0].sumym.toString().substr(4,2) + "月現在";
+		}
+
+		// ヒートマップ表示／非表示
+		function toggleHeatmap() {
+			heatmap.setMap(heatmap.getMap() ? null : map);
+		}
+
+		// ヒートマップデータセット（0:全員 1:日本人 2:外国人）
+		function setHeatmap(sumPar) {
+			heatmapData = [];
+			var sumWeight;
+			for (var i=0; i < dataArray.length; i++) {
+				sumWeight = 0;
+				if (sumPar == 0 || sumPar == 1) {
+					sumWeight += dataArray[i].numjm + dataArray[i].numjf;
+				}
+				if (sumPar == 0 || sumPar == 2) {
+					sumWeight += dataArray[i].numfm + dataArray[i].numff;
+				}
+				if (sumWeight > 0) {
+					heatmapData.push({
+						location : new google.maps.LatLng(dataArray[i].position.lat, dataArray[i].position.lng),
+						weight : sumWeight
+					});
+				}
+			}
+			//ヒートマップ最大強度
+			if (sumPar == 0 || sumPar == 1) {
+				heatmap.set('maxIntensity', 3000);
+			} else {
+				heatmap.set('maxIntensity',   50);
+			}
+			// ヒートマップレイヤにヒートマップデータを適用
+			heatmap.setData(heatmapData);
+		}
+
+		// MAP初期表示
+		function initMap() {
+			// 表示オプション
+			var options ={
+				center: new google.maps.LatLng( 35.069118,134.004542 ), // 地図の中心：岡山県津山市山北５２０番地
+				mapTypeId: google.maps.MapTypeId.HYBRID,                // 地図の種類(HYBRID/ROADMAP/SATELLITE/TERRAIN)
+				zoom:12                                                 // 地図の縮尺
+			};
+			var canvas = document.getElementById( 'map-canvas' );
+			// Mapクラスを作成し地図を表示する
+			map = new google.maps.Map( canvas, options );
+
+			//ヒートマップレイヤオブジェクトを作成
+			heatmap = new google.maps.visualization.HeatmapLayer({
+				maxIntensity:3000, //ヒートマップ最大強度
+				radius:50,         //データポイント影響範囲（ピクセル単位）
+				opacity:0.8        //ヒートマップ不透明度
+			});
+
+			getCSV(); //CSV読込
+
+		}
+
+	</script>
+
+	<p class="footer">
+		Created by Morio Kitamura (<a href="mailto:kitamura@mx1.tvt.ne.jp">kitamura@mx1.tvt.ne.jp</a>)
+	</p>
+
+	<!-- GoogleMapAPIの読込 -->
+	<script  async defer
+		type="text/javascript"
+		src="https://maps.google.com/maps/api/js?key=AIzaSyB9duwTb_WnVM-YO8MfoMCUzmxQQzhPG0s&libraries=visualization&callback=initMap">
+	</script>
+
+</body>
+
+</html>
